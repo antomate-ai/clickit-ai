@@ -78,7 +78,7 @@ st.session_state.setdefault("capture_key", 0)
 # ─────────────────── 🌐 UI ─────────────────── #
 st.set_page_config(page_title="ClickIT Upload Module", layout="centered")
 
-st.image("https://clickitshop.de/wp-content/uploads/2025/04/cropped-clickit-logo.png", width=180)
+st.image("logo.png", width=180)
 st.markdown("<h2 style='text-align: center;'>📸 AI Module for Intelligent Article Listing</h2>", unsafe_allow_html=True)
 st.markdown("---")
 
