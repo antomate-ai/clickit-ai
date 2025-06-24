@@ -108,7 +108,7 @@ if selected_excel:
             {"filename": fname, "data": pic.getvalue(), "row": chosen_row, "model": chosen_model}
         )
         st.session_state.capture_key += 1
-        st.experimental_rerun()
+        st.rerun()
 
     if st.session_state.images_by_model:
         st.markdown("### 🖼️ Image Preview")
@@ -122,7 +122,7 @@ if selected_excel:
                     with col_btn:
                         if st.button("🗑️", key=f"del_{label}_{i}"):
                             st.session_state.images_by_model[label].pop(i)
-                            st.experimental_rerun()
+                            st.rerun()
 
     if any(st.session_state.images_by_model.values()):
         if st.button("📤 Upload all"):
