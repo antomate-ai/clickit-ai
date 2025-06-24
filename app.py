@@ -9,21 +9,18 @@ import streamlit as st
 import pandas as pd
 import dropbox
 from PIL import Image
-from dotenv import load_dotenv
 
-# ─────────────────── 🔐 Load Dropbox token from the environment ─────────────────── #
-load_dotenv()                                  # 1) Load .env (local dev)
-DROPBOX_TOKEN = os.getenv("DROPBOX_TOKEN")     # 2) Read env variable
+# ─────────────────── 🔐 Load Dropbox token from Streamlit Secrets ─────────────────── #
+DROPBOX_TOKEN = st.secrets.get("DROPBOX_TOKEN")
 
 if not DROPBOX_TOKEN:
     st.error(
         "❌ Dropbox API token not found.\n"
-        "Set the variable 'DROPBOX_TOKEN' in your environment or in a .env file "
-        "next to app.py (e.g.  DROPBOX_TOKEN=sl.your_real_token_here)."
+        "Please add `DROPBOX_TOKEN = \"sl.your_token_here\"` to your Streamlit secrets."
     )
     st.stop()
 
-# ─────────────────── ⚙️  Optional per-app settings (root folder, etc.) ───────────── #
+# ─────────────────── ⚙️ Optional app settings ─────────────────── #
 def load_settings(json_file="settings.json"):
     if not os.path.exists(json_file):
         return {}
@@ -41,7 +38,7 @@ def list_dropbox_excels(root_folder=""):
     dbx, results, queue = dbx_client(), [], [root_folder]
     try:
         while queue:
-            current      = queue.pop(0)
+            current = queue.pop(0)
             for entry in dbx.files_list_folder(current).entries:
                 if isinstance(entry, dropbox.files.FolderMetadata):
                     queue.append(entry.path_lower)
@@ -76,7 +73,7 @@ def upload_file_to_dropbox(local_path: str, dropbox_dest: str):
     except Exception as e:
         st.error(f"❌ Unexpected upload error: {e}")
 
-# ─────────────────── 🔁 Streamlit session state ─────────────────── #
+# ─────────────────── 🔁 Session State ─────────────────── #
 st.session_state.setdefault("images_by_model", {})
 st.session_state.setdefault("capture_key", 0)
 
@@ -96,7 +93,7 @@ if selected_excel:
                 info   = " | ".join(f"{k}: {v}" for k, v in row.items() if k != "Model")
                 dlabel = f"{model} ({info})" if info else model
                 model_opts.append(dlabel)
-                model_map[dlabel] = {"model": model, "row": idx + 2}  # Excel row (+header)
+                model_map[dlabel] = {"model": model, "row": idx + 2}
 
     chosen_label = st.selectbox("🔍 Select product model:", sorted(model_opts))
     chosen = model_map[chosen_label]
@@ -105,7 +102,6 @@ if selected_excel:
     st.markdown("### 📷 Capture new image")
     pic = st.camera_input("📸 Camera", key=f"cam_{st.session_state.capture_key}")
 
-    # Save captured photo in session
     if pic:
         fname = sanitize_filename(f"{chosen_model}_{len(st.session_state.images_by_model.get(chosen_label, [])) + 1}.jpg")
         st.session_state.images_by_model.setdefault(chosen_label, []).append(
@@ -114,7 +110,6 @@ if selected_excel:
         st.session_state.capture_key += 1
         st.experimental_rerun()
 
-    # Preview & delete
     if st.session_state.images_by_model:
         st.markdown("### 🖼️ Image Preview")
         for label, imgs in st.session_state.images_by_model.items():
@@ -129,7 +124,6 @@ if selected_excel:
                             st.session_state.images_by_model[label].pop(i)
                             st.experimental_rerun()
 
-    # Upload button
     if any(st.session_state.images_by_model.values()):
         if st.button("📤 Upload all"):
             try:
