@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 import dropbox
 from PIL import Image
+from rembg import remove
 
 # ─────────────────── 🔐 Load Dropbox token ─────────────────── #
 DROPBOX_TOKEN = st.secrets.get("DROPBOX_TOKEN")
@@ -17,7 +18,7 @@ if not DROPBOX_TOKEN:
     st.error("❌ Dropbox API token not found. Please set it in Streamlit secrets.")
     st.stop()
 
-# ─────────────────── ⚙️ Optional settings ─────────────────── #
+# ─────────────────── ⚙️ Load Settings ─────────────────── #
 def load_settings(json_file="settings.json"):
     if not os.path.exists(json_file):
         return {}
@@ -77,8 +78,7 @@ st.session_state.setdefault("capture_key", 0)
 # ─────────────────── 🌐 UI ─────────────────── #
 st.set_page_config(page_title="ClickIT Upload Module", layout="centered")
 
-# 🔗 Logo and Title
-st.image("logo.png", width=180)
+st.image("https://clickitshop.de/wp-content/uploads/2025/04/cropped-clickit-logo.png", width=180)
 st.markdown("<h2 style='text-align: center;'>📸 AI Module for Intelligent Article Listing</h2>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -104,7 +104,7 @@ if selected_excel:
     pic = st.camera_input("Take photo", key=f"cam_{st.session_state.capture_key}")
 
     if pic:
-        fname = sanitize_filename(f"{selected_model}_{len(st.session_state.images_by_model.get(selected_label, [])) + 1}.jpg")
+        fname = sanitize_filename(f"{selected_model}_{len(st.session_state.images_by_model.get(selected_label, [])) + 1}.png")
         st.session_state.images_by_model.setdefault(selected_label, []).append({
             "filename": fname,
             "data": pic.getvalue(),
@@ -142,9 +142,14 @@ if selected_excel:
                         db_path = f"{root}/{subfolder}/{sanitize_filename(img['filename'])}".replace("//", "/")
                         st.write(f"📤 Uploading: `{db_path}`")
 
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                            tmp.write(img["data"])
-                            upload_file_to_dropbox(tmp.name, db_path)
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                            try:
+                                input_image = Image.open(io.BytesIO(img["data"])).convert("RGBA")
+                                output_image = remove(input_image)
+                                output_image.save(tmp, format="PNG")
+                                upload_file_to_dropbox(tmp.name, db_path)
+                            except Exception as e:
+                                st.error(f"❌ Failed to remove background or upload: {e}")
 
                 st.session_state.images_by_model.clear()
                 st.success("🎉 Upload complete")
