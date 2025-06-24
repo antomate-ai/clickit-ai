@@ -5,3 +5,4 @@ Pillow
 openpyxl
 python-dotenv
 rembg
+onnxruntime
