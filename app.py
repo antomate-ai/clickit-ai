@@ -1,4 +1,3 @@
-
 import os
 import io
 import json
@@ -12,43 +11,38 @@ import dropbox
 from PIL import Image
 from dotenv import load_dotenv
 
-# --------------------- 🔐 Load Dropbox Token --------------------- #
-def load_dropbox_token():
-    try:
-        return st.secrets["DROPBOX_TOKEN"]
-    except Exception:
-        return os.getenv("DROPBOX_TOKEN")
-
-load_dotenv()  # Load .env (local)
-DROPBOX_TOKEN = load_dropbox_token()
+# ─────────────────── 🔐 Load Dropbox token from the environment ─────────────────── #
+load_dotenv()                                  # 1) Load .env (local dev)
+DROPBOX_TOKEN = os.getenv("DROPBOX_TOKEN")     # 2) Read env variable
 
 if not DROPBOX_TOKEN:
-    st.error("❌ Dropbox API token not found. Please set 'DROPBOX_TOKEN' in Streamlit Secrets or .env.")
+    st.error(
+        "❌ Dropbox API token not found.\n"
+        "Set the variable 'DROPBOX_TOKEN' in your environment or in a .env file "
+        "next to app.py (e.g.  DROPBOX_TOKEN=sl.your_real_token_here)."
+    )
     st.stop()
 
-# --------------------- ⚙️ Load Optional Settings --------------------- #
+# ─────────────────── ⚙️  Optional per-app settings (root folder, etc.) ───────────── #
 def load_settings(json_file="settings.json"):
     if not os.path.exists(json_file):
         return {}
     with open(json_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
-settings = load_settings()
+settings     = load_settings()
 DROPBOX_ROOT = settings.get("dropbox_root", "")
 
-# --------------------- ☁️ Dropbox Helper Functions --------------------- #
+# ─────────────────── ☁️ Dropbox helper functions ─────────────────── #
 def dbx_client():
     return dropbox.Dropbox(DROPBOX_TOKEN)
 
 def list_dropbox_excels(root_folder=""):
-    dbx = dbx_client()
-    results = []
+    dbx, results, queue = dbx_client(), [], [root_folder]
     try:
-        queue = [root_folder]
         while queue:
-            current = queue.pop(0)
-            entries = dbx.files_list_folder(current).entries
-            for entry in entries:
+            current      = queue.pop(0)
+            for entry in dbx.files_list_folder(current).entries:
                 if isinstance(entry, dropbox.files.FolderMetadata):
                     queue.append(entry.path_lower)
                 elif isinstance(entry, dropbox.files.FileMetadata) and entry.name.lower().endswith((".xls", ".xlsx")):
@@ -66,17 +60,14 @@ def read_excel_from_dropbox(path):
         st.error(f"❌ Error reading Excel file: {e}")
         return {}
 
-def sanitize_filename(name):
-    name = str(name)
-    name = re.sub(r"[^\w\-_.() ]", "_", name)
-    return name.replace(" ", "_")
+def sanitize_filename(name: str) -> str:
+    return re.sub(r"[^\w\-_.() ]", "_", str(name)).replace(" ", "_")
 
-def upload_file_to_dropbox(local_path, dropbox_dest):
+def upload_file_to_dropbox(local_path: str, dropbox_dest: str):
     try:
         dbx = dbx_client()
         with open(local_path, "rb") as f:
-            data = f.read()
-        dbx.files_upload(data, dropbox_dest, mode=dropbox.files.WriteMode.overwrite)
+            dbx.files_upload(f.read(), dropbox_dest, mode=dropbox.files.WriteMode.overwrite)
         st.success(f"✅ Uploaded to `{dropbox_dest}`")
     except dropbox.exceptions.ApiError as e:
         st.error(f"❌ Dropbox API error: {e}")
@@ -85,96 +76,77 @@ def upload_file_to_dropbox(local_path, dropbox_dest):
     except Exception as e:
         st.error(f"❌ Unexpected upload error: {e}")
 
-# --------------------- 🔁 Session State --------------------- #
-if "images_by_model" not in st.session_state:
-    st.session_state.images_by_model = {}
-if "capture_key" not in st.session_state:
-    st.session_state.capture_key = 0
+# ─────────────────── 🔁 Streamlit session state ─────────────────── #
+st.session_state.setdefault("images_by_model", {})
+st.session_state.setdefault("capture_key", 0)
 
-# --------------------- 🌐 Streamlit UI --------------------- #
+# ─────────────────── 🌐 Streamlit UI ─────────────────── #
 st.set_page_config(page_title="📸 Dropbox Upload Tool", layout="centered")
 st.title("📸 Capture Product Images & Upload to Dropbox")
 
-excel_files = list_dropbox_excels(DROPBOX_ROOT)
+excel_files   = list_dropbox_excels(DROPBOX_ROOT)
 selected_excel = st.selectbox("📂 Select Excel file:", excel_files)
 
 if selected_excel:
-    sheets = read_excel_from_dropbox(selected_excel)
-    model_options = []
-    model_map = {}
-
-    for sheet_name, df in sheets.items():
+    sheets, model_opts, model_map = read_excel_from_dropbox(selected_excel), [], {}
+    for sheet, df in sheets.items():
         if "Model" in df.columns:
-            for i, row in df.iterrows():
-                model = str(row["Model"])
-                info = " | ".join(f"{k}: {v}" for k, v in row.items() if k != "Model")
-                display = f"{model} ({info})" if info else model
-                model_options.append(display)
-                model_map[display] = {
-                    "model": model,
-                    "row": i + 2  # Excel row number (with header)
-                }
+            for idx, row in df.iterrows():
+                model  = str(row["Model"])
+                info   = " | ".join(f"{k}: {v}" for k, v in row.items() if k != "Model")
+                dlabel = f"{model} ({info})" if info else model
+                model_opts.append(dlabel)
+                model_map[dlabel] = {"model": model, "row": idx + 2}  # Excel row (+header)
 
-    selected_display = st.selectbox("🔍 Select product model:", sorted(model_options))
-    selected = model_map[selected_display]
-    selected_model = selected["model"]
-    selected_row = selected["row"]
+    chosen_label = st.selectbox("🔍 Select product model:", sorted(model_opts))
+    chosen = model_map[chosen_label]
+    chosen_model, chosen_row = chosen["model"], chosen["row"]
 
     st.markdown("### 📷 Capture new image")
-    image_file = st.camera_input("📸 Camera", key=f"cam_{st.session_state.capture_key}")
+    pic = st.camera_input("📸 Camera", key=f"cam_{st.session_state.capture_key}")
 
-    if image_file:
-        filename = sanitize_filename(f"{selected_model}_{len(st.session_state.images_by_model.get(selected_display, [])) + 1}.jpg")
-        if selected_display not in st.session_state.images_by_model:
-            st.session_state.images_by_model[selected_display] = []
-        st.session_state.images_by_model[selected_display].append({
-            "filename": filename,
-            "data": image_file.getvalue(),
-            "row": selected_row,
-            "model": selected_model
-        })
+    # Save captured photo in session
+    if pic:
+        fname = sanitize_filename(f"{chosen_model}_{len(st.session_state.images_by_model.get(chosen_label, [])) + 1}.jpg")
+        st.session_state.images_by_model.setdefault(chosen_label, []).append(
+            {"filename": fname, "data": pic.getvalue(), "row": chosen_row, "model": chosen_model}
+        )
         st.session_state.capture_key += 1
         st.experimental_rerun()
 
+    # Preview & delete
     if st.session_state.images_by_model:
         st.markdown("### 🖼️ Image Preview")
-        for key, images in st.session_state.images_by_model.items():
-            if images:
-                st.markdown(f"**📁 {key}**")
-                for i, img in enumerate(images):
-                    cols = st.columns([5, 1])
-                    with cols[0]:
+        for label, imgs in st.session_state.images_by_model.items():
+            if imgs:
+                st.markdown(f"**📁 {label}**")
+                for i, img in enumerate(imgs):
+                    col_img, col_btn = st.columns([5, 1])
+                    with col_img:
                         st.image(Image.open(io.BytesIO(img["data"])), caption=img["filename"], use_column_width=True)
-                    with cols[1]:
-                        if st.button("🗑️", key=f"del_{key}_{i}"):
-                            st.session_state.images_by_model[key].pop(i)
+                    with col_btn:
+                        if st.button("🗑️", key=f"del_{label}_{i}"):
+                            st.session_state.images_by_model[label].pop(i)
                             st.experimental_rerun()
 
-    # 📤 Upload to Dropbox
+    # Upload button
     if any(st.session_state.images_by_model.values()):
         if st.button("📤 Upload all"):
             try:
-                excel_base = sanitize_filename(PurePosixPath(selected_excel).stem)
-                excel_parent_raw = PurePosixPath(selected_excel).parent
-                excel_parent = excel_parent_raw.as_posix()
-
-                if excel_parent in [".", "", "/"]:
-                    excel_parent = ""
-
-                root_upload_folder = f"/{excel_parent}/{excel_base}".replace("//", "/")
+                base   = sanitize_filename(PurePosixPath(selected_excel).stem)
+                parent = PurePosixPath(selected_excel).parent.as_posix().strip("/")
+                root   = f"/{parent}/{base}".replace("//", "/")
                 st.info("🔄 Uploading...")
 
-                for key, images in st.session_state.images_by_model.items():
-                    for img in images:
-                        subfolder = sanitize_filename(str(img["row"]))
-                        dropbox_path = f"{root_upload_folder}/{subfolder}/{sanitize_filename(img['filename'])}".replace("//", "/")
-                        st.write(f"📤 Uploading to: `{dropbox_path}`")
+                for label, imgs in st.session_state.images_by_model.items():
+                    for img in imgs:
+                        sub    = sanitize_filename(str(img["row"]))
+                        dbpath = f"{root}/{sub}/{sanitize_filename(img['filename'])}".replace("//", "/")
+                        st.write(f"📤 Uploading to `{dbpath}`")
 
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                             tmp.write(img["data"])
-                            tmp_path = tmp.name
-
-                        upload_file_to_dropbox(tmp_path, dropbox_path)
+                            upload_file_to_dropbox(tmp.name, dbpath)
 
                 st.session_state.images_by_model.clear()
                 st.success("🎉 All images uploaded successfully.")
